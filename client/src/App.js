@@ -1,100 +1,116 @@
 import React, { useState, useEffect } from 'react';
-import PlayerCard from './components/PlayerCard';
+import './App.css';
 import { supabase } from './supabaseClient';
-import './App.css'; // <-- Import du fichier CSS
-
+import PlayerCard from './PlayerCard';
+import PlayerTable from './PlayerTable';
 
 function App() {
+  const [form, setForm] = useState({ name: '' });
   const [players, setPlayers] = useState([]);
-  const [form, setForm] = useState({ name: '', role: '', team: '' });
-
+  const [showTable, setShowTable] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchPlayers();
   }, []);
 
-
-  const fetchPlayers = async () => {
+  async function fetchPlayers() {
     const { data, error } = await supabase.from('players').select('*');
-    if (error) console.error('Erreur fetch:', error);
-    else setPlayers(data);
-  };
-
+    if (error) {
+      console.error('Erreur lors de la récupération des joueurs', error);
+    } else {
+      setPlayers(data);
+    }
+  }
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name || !form.role || !form.team) return;
+    setLoading(true);
 
+    try {
+      const response = await fetch(
+        `https://lol.fandom.com/api.php?action=cargoquery&format=json&tables=Players&fields=ID,Name,Nationality,Role,Team,Birthdate&where=ID="${form.name}"&origin=*`
+      );
+      const json = await response.json();
+      const result = json?.cargoquery?.[0]?.title;
 
-    const { data, error } = await supabase.from('players').insert([form]);
-    if (error) console.error("Erreur Supabase:", error);
-    else {
-      setForm({ name: '', role: '', team: '' });
-      fetchPlayers();
+      if (!result) {
+        alert("Joueur introuvable sur Leaguepedia.");
+        setLoading(false);
+        return;
+      }
+
+      const newPlayer = {
+        name: result.ID || form.name,
+        nationality: result.Nationality || '',
+        role: result.Role || '',
+        team: result.Team || '',
+        birthdate: result.Birthdate || '',
+      };
+
+      const { data: insertedPlayer, error } = await supabase
+        .from('players')
+        .insert([newPlayer])
+        .select();
+
+      if (error) {
+        console.error("Erreur lors de l'ajout du joueur :", error.message);
+      } else {
+        setPlayers([...players, insertedPlayer[0]]);
+        setForm({ name: '' });
+      }
+    } catch (err) {
+      console.error("Erreur lors de la récupération des infos Leaguepedia :", err);
     }
+
+    setLoading(false);
   };
 
-
   return (
-    <div className="app-container">
-      <h1>Liste des joueurs</h1>
+    <div className="App">
+      <button className="toggle-btn" onClick={() => setShowTable(!showTable)}>
+        {showTable ? 'Revenir au formulaire' : 'Voir tous les joueurs'}
+      </button>
 
+      {showTable ? (
+        <PlayerTable players={players} />
+      ) : (
+        <>
+          <h1>Ajouter un joueur</h1>
+          <form onSubmit={handleSubmit}>
+            <input
+              type="text"
+              name="name"
+              placeholder="Pseudo Leaguepedia"
+              value={form.name}
+              onChange={handleChange}
+              required
+            />
+            <button type="submit" disabled={loading}>
+              {loading ? 'Chargement...' : 'Ajouter le joueur'}
+            </button>
+          </form>
 
-      <div className="player-list">
-        {players.filter(Boolean).map(player => (
-          <PlayerCard key={player.id} {...player} />
-        ))}
-      </div>
-
-
-      <h2>Ajouter un joueur</h2>
-      <form onSubmit={handleSubmit} className="form">
-        <label>
-          Nom
-          <input
-            name="name"
-            placeholder="Nom"
-            value={form.name}
-            onChange={handleChange}
-            required
-          />
-        </label>
-
-
-        <label>
-          Rôle
-          <input
-            name="role"
-            placeholder="Rôle"
-            value={form.role}
-            onChange={handleChange}
-            required
-          />
-        </label>
-
-
-        <label>
-          Équipe
-          <input
-            name="team"
-            placeholder="Équipe"
-            value={form.team}
-            onChange={handleChange}
-            required
-          />
-        </label>
-
-
-        <button type="submit">Ajouter</button>
-      </form>
+          <div className="player-list">
+            {players.map((player) => (
+              <PlayerCard
+                key={player.id}
+                name={player.name}
+                role={player.role}
+                nationality={player.nationality}
+                team={player.team}
+                birthdate={player.birthdate}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
-
 
 export default App;
